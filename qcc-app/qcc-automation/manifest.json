@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "QCC 企查查快速登录",
+  "version": "2.0.0",
+  "description": "通过 IMS 内网自动登录并直达企查查企业信息查询页。v2：基于真实 HTML 源码精确选择器。",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ims.allbrightlaw.com/*",
+        "https://*.qcc.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "permissions": []
+}
