@@ -80,7 +80,12 @@ function isPermErr(stderr) {
 }
 
 function notify(msg) {
-  spawnSync(OSA, ['-e', `display notification "${String(msg).replace(/"/g, '\\"')}" with title "企查查速查"`]);
+  // 用 display dialog 而非 display notification：osascript 发的系统通知横幅会被
+  // macOS 归因到"脚本编辑器"，一旦点横幅/通知中心条目就会打开脚本编辑器；对话框无此副作用。
+  const esc = String(msg).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  spawnSync(OSA, [
+    '-e', `display dialog "${esc}" with title "企查查速查" buttons {"好"} default button "好" giving up after 30`,
+  ], { timeout: 35_000, encoding: 'utf8' });
 }
 
 function ask(text, hidden) {
@@ -129,6 +134,30 @@ function nav(winId, idx, url) {
 
 function closeTab(winId, idx) {
   return osa([RUNNER, 'CLOSE_TAB', String(winId), String(idx)], 6000);
+}
+
+// 页面内提示条：替代系统通知横幅（横幅会被归因到"脚本编辑器"，点开即弹编辑器）。
+// 直接把就绪提示画在企查查页面上，用户视线本来就在这里。
+function pageToast(winId, idx, msg) {
+  const js = `(() => {
+  try {
+    const old = document.getElementById('__qcc_toast'); if (old) old.remove();
+    const d = document.createElement('div');
+    d.id = '__qcc_toast';
+    d.textContent = ${JSON.stringify(msg)};
+    d.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:2147483647;'
+      + 'background:rgba(28,100,242,.95);color:#fff;padding:10px 26px;border-radius:24px;font-size:15px;'
+      + 'font-family:system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;'
+      + 'transition:opacity .3s;pointer-events:none;white-space:nowrap;';
+    document.documentElement.appendChild(d);
+    requestAnimationFrame(() => { d.style.opacity = '1'; });
+    setTimeout(() => { d.style.opacity = '0'; setTimeout(() => d.remove(), 400); }, 4500);
+    return 'OK';
+  } catch (e) { return 'ERR:' + e; }
+})()`;
+  const f = writeTmpJs(js);
+  const r = evalFile(f, winId, idx);
+  return !r.err && (r.val === 'OK' || r.raw === 'OK');
 }
 
 // ---------- 页面检测 / 填表 JS ----------
@@ -256,10 +285,9 @@ function saveCred(c) {
 }
 function deleteCred() { try { fs.rmSync(CRED_FILE, { force: true }); } catch {} }
 
-function getCredentials(reasonNote) {
+function getCredentials() {
   let c = loadCred();
   if (c) return c;
-  notify(reasonNote || '首次使用，请录入 IMS 账号密码');
   log('请求录入凭据…');
   const user = ask('请输入IMS登录账号', false);
   if (user == null || !user) return null;
@@ -431,7 +459,9 @@ async function main() {
       closeTab(dup.winId, dup.idx);
       await sleep(200);
     }
-    notify('已就绪，可以直接查询');
+    if (!pageToast(chosen.winId, chosen.idx, '✅ 企查查已就绪，可以直接查询')) {
+      notify('已就绪，可以直接查询');
+    }
     log('==== 完成：就绪 ====');
     process.exitCode = 0;
     return;
