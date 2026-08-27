@@ -1,22 +1,30 @@
 #!/usr/bin/env node
-// QCC 自动登录守护进程 v7 —— 凭据本机保存版（可安全分享）
+// QCC 自动登录守护进程 v8 —— 白屏自愈 + 单窗口版
 //
-// v7 变更：账号密码不再硬编码在 App 内（否则 App 分享即泄露密码）。
-//   - 凭据存放：~/.qcc/ims-account.json（权限 600，仅本机当前用户可读）
-//   - 首次使用 / 凭据失效：在 IMS 登录页上弹出输入面板，使用者填自己的账号密码
-//   - 勾选「记住密码」→ 存本机，下次自动登录；不勾选 → 仅本次有效
-//   - 连续多次登录失败 → 清除已保存凭据，重新弹出输入面板
+// v8 变更（修复两个用户反馈的问题）：
+//   问题 1：登录后长期白屏，查询输入框（"聊天框"）不出来。
+//     根因：v7 只要 URL 到达 pro-plugin.qcc.com 就判定成功、注入绿条并退出，
+//           但查询页是 SPA（index-*.js），首屏资源没渲染完（或票据换票异常）时
+//           页面一直白屏，守护进程却已宣告胜利，无人兜底。
+//     修复：成功判定改为「搜索输入框真实可见」（getBoundingClientRect 校验），
+//           并加自愈链：等待 25s → location.reload() 重载 → 再等 25s →
+//           重走 sysAuth/plugin.aspx?t=1 换新票据 → 再等 35s → 仍白屏则显示
+//           红色提示条（可手动 Cmd+R）。
+//   问题 2：登录过程中会新开一个 Chrome 窗口。
+//     根因：IMS / 企查查跳转链路里存在 window.open() 式弹窗（票据回传常用），
+//           查询页被弹到新窗口，原 app 窗口被晾在一边。
+//     修复：对每个页面注入「弹窗拦截器」（立即注入当前文档 + 注册为新文档
+//           初始化脚本，跨导航持续生效）：window.open 改为本页 location.assign；
+//           a[target=_blank]/form[target=_blank] 强制改 _self。整条链路锁死在
+//           唯一的 app 窗口里；若仍出现遗留 IMS/空白页，成功后自动关闭。
+//
+// v7 要点（保留）：凭据存本机 ~/.qcc/ims-account.json（600），App 包内不含密码；
+//   首次使用/失效时在登录页弹输入面板；连续失败自动清凭据重问。
 //
 // 链路事实（2026-08 实测）：
 //   sysAuth/plugin.aspx?t=1
-//     有会话   → 302 pro-plugin.qcc.com/plugin-login?key=..&token=..&returnUrl=/plugin-search → 查询页
+//     有会话   → 302 pro-plugin.qcc.com/plugin-login?key=..&token=..&returnUrl=/plugin-search
 //     无会话   → 302 system/login.aspx?rurl=base64(t=1) ；登录 POST 后服务器自动弹回 t=1
-//   所以本进程只做三件事：
-//     A) 看到 IMS 登录页 → 已有凭据则自动填表提交；没有则弹面板等用户输入
-//     B) 罕见落到门户页(customer/index)时兜底重定向到 t=1
-//     C) 其余时间静静等待终页出现。
-//
-// 端口来自环境变量 QCC_CDP_PORT（launch.sh 每次启动选空闲端口，避免和日常 Chrome 抢 9222）。
 
 const http = require('http');
 const fs = require('fs');
@@ -27,16 +35,20 @@ const PORT = parseInt(process.env.QCC_CDP_PORT || '9222', 10);
 const HOST = '127.0.0.1';
 const LOG_FILE = '/tmp/qcc-auto.log';
 const ACCOUNT_FILE = path.join(os.homedir(), '.qcc', 'ims-account.json');
-const MAX_RUN_MS = 300000;          // 总看门狗：5 分钟（首次要等人输密码，比 v6 的 3 分钟放宽）
+const MAX_RUN_MS = 300000;          // 总看门狗：5 分钟
 const LOOP_MS = 800;
 const LOGIN_MAX_ATTEMPTS = 4;
 const LOGIN_RETRY_GAP_MS = 6000;
 
+// 白屏自愈节奏
+const RENDER_WAIT_MS = 25000;       // 阶段0：初次等 SPA 渲染
+const RELOAD_WAIT_MS = 25000;       // 阶段1：reload 后再等
+const REROUTE_WAIT_MS = 35000;      // 阶段2：重走 t=1 换新票据后等
+
 function log(...args) {
   const line = '[' + new Date().toISOString().slice(11, 19) + '] ' +
     args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-  console.log(line);
-  try { fs.appendFileSync(LOG_FILE, line + '\n'); } catch (e) {}
+  console.log(line);   // launch.sh 已把 stdout 重定向到 LOG_FILE
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -125,6 +137,120 @@ async function waitCdpReady() {
   throw new Error('CDP 90 秒内未就绪 (port ' + PORT + ')');
 }
 
+// ---- 弹窗拦截器：window.open → 本页跳转；_blank → _self ----
+// 返回 body 内容同页跳转，防止链路把查询页弹到新窗口。
+const POPUP_GUARD = `
+  (function(){
+    if (window.__qccNoPopup) return 'ALREADY';
+    window.__qccNoPopup = true;
+    try {
+      window.open = function(u){
+        try { if (u) { location.assign(u); return null; } } catch (e) {}
+        return null;
+      };
+    } catch (e) {}
+    try {
+      document.addEventListener('click', function(e){
+        try {
+          var t = e.target;
+          var a = t && t.closest && t.closest('a[target="_blank"]');
+          if (a) a.target = '_self';
+        } catch (err) {}
+      }, true);
+      document.addEventListener('submit', function(e){
+        try { if (e.target && e.target.target === '_blank') e.target.target = '_self'; } catch (err) {}
+      }, true);
+    } catch (e) {}
+    return 'OK';
+  })();
+`;
+
+// 对某个页面装拦截器：a) 立即注入当前文档  b) 注册为后续导航的初始化脚本。
+// 注意：初始化脚本可能随 DevTools 会话断开被清除，所以会话保持到守护进程退出。
+const guardSessions = new Map();   // targetId -> WebSocket
+async function installPopupGuard(target) {
+  const wsUrl = target.webSocketDebuggerUrl;
+  if (!wsUrl) return;
+  // a) 立即生效（当前正在加载的文档收不到初始化脚本，只能直接注入）
+  try { await evalOn(wsUrl, POPUP_GUARD); } catch (e) {}
+  // b) 对该 target 的所有后续文档生效（会话保持不断开）
+  await new Promise(resolve => {
+    let done = false;
+    const finish = ok => { if (done) return; done = true; resolve(ok); };
+    const ws = new WebSocket(wsUrl);
+    const id1 = Math.floor(Math.random() * 1e9), id2 = id1 + 1;
+    const to = setTimeout(() => finish(false), 8000);
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ id: id1, method: 'Page.enable' }));
+      ws.send(JSON.stringify({ id: id2, method: 'Page.addScriptToEvaluateOnNewDocument', params: { source: POPUP_GUARD } }));
+    };
+    ws.onmessage = ev => {
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.id === id2) { clearTimeout(to); guardSessions.set(target.id, ws); finish(true); }
+      } catch (e) {}
+    };
+    ws.onerror = () => { clearTimeout(to); finish(false); };
+    ws.onclose = () => { clearTimeout(to); guardSessions.delete(target.id); };
+  });
+}
+
+// 成功后清理遗留页面（IMS / 空白页），只保留查询页 —— 兜底多窗口问题
+async function closeLeftoverPages(keepTargetId) {
+  try {
+    const pages = await listPages();
+    for (const t of pages) {
+      if (t.id === keepTargetId) continue;
+      const u = (t.url || '').toLowerCase();
+      if (u.includes('ims.allbrightlaw.com') || u === '' || u === 'about:blank' || u.startsWith('chrome://')) {
+        try { await httpGet('/json/close/' + t.id); log('已关闭遗留页面:', t.url || '(blank)'); } catch (e) {}
+      }
+    }
+  } catch (e) {}
+}
+
+// ---- 哨兵模式：登录成功后不再退出，守到所有窗口关闭 ----
+// 背景：macOS 上 Chrome 关掉最后一个窗口后进程仍驻留。若放任不管，之后双击
+// App 时系统会认为「应用已在运行」，启动脚本不执行 → 表现为「点了没反应」。
+// 所以：检测到连续多次没有任何页面（= 所有窗口已关）→ 主动 Browser.close
+// 让 Chrome 干净退出，下次点击 App 即可正常全新启动。
+function browserClose() {
+  return new Promise(resolve => {
+    httpGet('/json/version').then(v => {
+      if (!v || !v.webSocketDebuggerUrl) return resolve(false);
+      const ws = new WebSocket(v.webSocketDebuggerUrl);
+      const to = setTimeout(() => { try { ws.close(); } catch (e) {} resolve(false); }, 5000);
+      ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+      ws.onclose = () => { clearTimeout(to); resolve(true); };
+      ws.onerror = () => { clearTimeout(to); resolve(false); };
+    }).catch(() => resolve(false));
+  });
+}
+
+function enterSentinelMode() {
+  let emptyRounds = 0;
+  log('进入哨兵模式：所有窗口关闭后将自动退出 Chrome');
+  const iv = setInterval(async () => {
+    try {
+      const pages = await listPages();
+      if (pages.length === 0) {
+        if (++emptyRounds >= 3) {
+          clearInterval(iv);
+          log('所有窗口已关闭，退出 Chrome（便于下次点击 App 正常启动）');
+          await browserClose();
+          setTimeout(() => process.exit(0), 3000);
+        }
+      } else {
+        emptyRounds = 0;
+      }
+    } catch (e) {
+      // CDP 无响应 = Chrome 已退出
+      clearInterval(iv);
+      process.exit(0);
+    }
+  }, 3000);
+}
+
 async function injectStatus(wsUrl, text, color) {
   const expr = `
     (function(){
@@ -151,6 +277,37 @@ const DETECT_LOGIN = `
     var p = document.querySelector('#userpwd') || document.querySelector('input[name="userpwd"]');
     return !!u && !!p;
   })();
+`;
+
+// ---- 注入片段：查询页真实渲染检测 ----
+// OK=搜索框可见；BLANK=页面空白；RENDERED_NO_INPUT=有内容但没有搜索框；LOGIN_PROMPT=提示未登录
+const CHECK_SEARCHBOX = `
+  (function(){
+    try {
+      var sels = ['.search-box input', '#searchInput',
+                  'input[placeholder*="企业"]', 'input[placeholder*="公司"]',
+                  'input[placeholder*="统一社会信用"]', 'input[placeholder*="查"]'];
+      for (var i = 0; i < sels.length; i++) {
+        var el = document.querySelector(sels[i]);
+        if (!el) continue;
+        var r = el.getBoundingClientRect();
+        if (r.width > 40 && r.height > 16) return 'OK';
+      }
+      var bodyText = (document.body && document.body.innerText) || '';
+      if (/请先登录|未登录|登录失效|重新登录/.test(bodyText)) return 'LOGIN_PROMPT';
+      if (document.readyState !== 'complete') return 'BLANK';
+      if (bodyText.replace(/\\s/g, '').length > 20) return 'RENDERED_NO_INPUT';
+      return 'BLANK';
+    } catch (e) { return 'ERR ' + e.message; }
+  })();
+`;
+
+const RELOAD_PAGE = `
+  (function(){ try { location.reload(); return 'RELOADING'; } catch (e) { return 'ERR ' + e.message; } })();
+`;
+
+const NAV_T1 = `
+  (function(){ try { location.assign('https://ims.allbrightlaw.com/sysAuth/plugin.aspx?t=1'); return 'NAV_OK'; } catch (e) { return 'ERR ' + e.message; } })();
 `;
 
 // ---- 注入片段：填账号密码并提交（凭据由参数注入，不落盘到 App）----
@@ -267,15 +424,10 @@ const READ_CRED = `
 `;
 
 // ---- 注入片段：门户兜底 —— 直接导航到企查查入口链路 ----
-const REROUTE_T1 = `
-  (function(){
-    try { location.assign('https://ims.allbrightlaw.com/sysAuth/plugin.aspx?t=1'); return 'NAV_OK'; }
-    catch (e) { return 'ERR ' + e.message; }
-  })();
-`;
+const REROUTE_T1 = NAV_T1;
 
 async function main() {
-  log('=== auto-login v7 启动, CDP 端口', PORT, '===');
+  log('=== auto-login v8 启动, CDP 端口', PORT, '===');
   await waitCdpReady();
   log('CDP ready');
 
@@ -286,27 +438,106 @@ async function main() {
   let panelMsg = '';
   if (creds) log('已读取本机保存的凭据:', ACCOUNT_FILE);
 
+  // 弹窗拦截：guardSessions 里有活跃会话才算已保护（会话断开会自动从中移除，下轮重装）
+  async function guardAll(pages) {
+    for (const t of pages) {
+      const u = (t.url || '').toLowerCase();
+      if (u.includes('ims.allbrightlaw.com') || u.includes('.qcc.com')) {
+        if (!guardSessions.has(t.id)) {
+          await installPopupGuard(t);
+        }
+      }
+    }
+  }
+
+  // 白屏自愈状态
+  let qccBlankSince = 0;     // 第一次发现查询页未渲染的时间
+  let healStep = 0;          // 0=等渲染 1=已reload 2=已重走t=1 3=放弃
+  let lastToastStep = -1;
+
   const start = Date.now();
 
   while (Date.now() - start < MAX_RUN_MS) {
     try {
-      // 1) 终态：已到企查查企业信息查询页
-      const finalPage = await findPage(u => u.includes('pro-plugin.qcc.com'));
+      const pages = await listPages();
+
+      // 0) 给所有相关页面装弹窗拦截器（防止新开 Chrome 窗口）
+      await guardAll(pages);
+
+      // 1) 终态：企查查查询页 —— 必须搜索框真实可见才算成功
+      const finalPage = pages.find(t => (t.url || '').includes('pro-plugin.qcc.com'));
       if (finalPage) {
-        log('✓ 已到达企查查查询页:', finalPage.url);
-        await sleep(1200);
-        await injectStatus(finalPage.webSocketDebuggerUrl,
-          '✓ 已登录企查查，可直接输入企业名称查询', 'rgba(40,160,60,0.95)');
-        setTimeout(() => process.exit(0), 2000);
-        return;
+        let st = 'ERR';
+        try {
+          const r = await evalOn(finalPage.webSocketDebuggerUrl, CHECK_SEARCHBOX);
+          st = (r.result && r.result.value) || 'ERR';
+        } catch (e) { /* 页面正在跳转/加载 */ }
+
+        if (st === 'OK') {
+          log('✓ 查询页搜索框已渲染，登录链路完成:', finalPage.url);
+          await closeLeftoverPages(finalPage.id);
+          await injectStatus(finalPage.webSocketDebuggerUrl,
+            '✓ 已登录企查查，可直接输入企业名称查询', 'rgba(40,160,60,0.95)');
+          enterSentinelMode();
+          return;
+        }
+
+        // 未就绪 → 白屏自愈状态机
+        if (!qccBlankSince) { qccBlankSince = Date.now(); log('查询页已到达，等待搜索框渲染… 状态:', st); }
+        const waited = Date.now() - qccBlankSince;
+
+        // 蓝色进度条（状态文案变化时才注入，避免闪烁）
+        const toastStep = healStep === 0 ? 0 : healStep === 1 ? 1 : 2;
+        if (toastStep !== lastToastStep) {
+          lastToastStep = toastStep;
+          const msgs = ['正在加载企查查查询页…', '查询页加载较慢，正在自动刷新…', '仍在加载，正在重新走登录链路换新票据…'];
+          await injectStatus(finalPage.webSocketDebuggerUrl, msgs[toastStep], 'rgba(0,100,200,0.92)');
+        }
+
+        if (st === 'LOGIN_PROMPT' && healStep < 2) {
+          // 会话失效：直接重走 t=1（比 reload 更对路）
+          healStep = 2; qccBlankSince = Date.now(); lastToastStep = -1;
+          log('查询页提示未登录，重走 t=1 换新票据');
+          try { await evalOn(finalPage.webSocketDebuggerUrl, NAV_T1); } catch (e) {}
+          await sleep(LOOP_MS);
+          continue;
+        }
+
+        if (healStep === 0 && waited > RENDER_WAIT_MS) {
+          healStep = 1; qccBlankSince = Date.now(); lastToastStep = -1;
+          log('搜索框 ' + (RENDER_WAIT_MS / 1000) + 's 未渲染，自动 reload（状态:' + st + '）');
+          try { await evalOn(finalPage.webSocketDebuggerUrl, RELOAD_PAGE); } catch (e) {}
+          await sleep(2000);
+          continue;
+        }
+        if (healStep === 1 && waited > RELOAD_WAIT_MS) {
+          healStep = 2; qccBlankSince = Date.now(); lastToastStep = -1;
+          log('reload 后仍未渲染，重走 t=1 换新票据（状态:' + st + '）');
+          try { await evalOn(finalPage.webSocketDebuggerUrl, NAV_T1); } catch (e) {}
+          await sleep(LOOP_MS);
+          continue;
+        }
+        if (healStep === 2 && waited > REROUTE_WAIT_MS) {
+          healStep = 3;
+          log('多次自愈后查询页仍未渲染，放弃自动恢复（状态:' + st + '）');
+          await injectStatus(finalPage.webSocketDebuggerUrl,
+            '⚠ 查询页加载异常：请按 Cmd+R 刷新，或关闭应用后重新打开', 'rgba(200,50,50,0.95)');
+          enterSentinelMode();
+          return;
+        }
+        await sleep(LOOP_MS);
+        continue;
       }
 
+      // 查询页不在了（自愈跳转途中等）→ 重置渲染计时但保留 healStep
+      if (qccBlankSince && healStep < 2) qccBlankSince = 0;
+
       // 2) qcc 中间页（plugin-login 换票中）：静等自跳
-      const qccMid = await findPage(u => /\.qcc\.com/.test(u));
+      const qccMid = pages.find(t => /\.qcc\.com/.test(t.url || ''));
       if (qccMid) { await sleep(LOOP_MS); continue; }
 
       // 3) IMS 页面
-      const imsPage = await findPage(u => u.includes('ims.allbrightlaw.com'));
+      const imsPage = pages.find(t => (t.url || '').includes('ims.allbrightlaw.com'));
       if (imsPage) {
         let isLogin = false;
         try {
@@ -376,8 +607,8 @@ async function main() {
       await sleep(900);
     }
   }
-  log('超时退出（窗口保留，可手动操作）');
-  process.exit(0);
+  log('主循环超时，进入哨兵模式（窗口保留，可手动操作）');
+  enterSentinelMode();
 }
 
 main().catch(e => {
