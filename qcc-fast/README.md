@@ -1,58 +1,50 @@
-# 企查查速查（方案A：复用日常 Chrome）
+# 企查查速查（Mac Dock App · v3 同事分发版）
 
-双击入口 → 日常 Chrome 秒开「企业信息查询平台」应用窗口；会话过期时**同一窗口内自动补登录**，全程无感。
+双击 Dock 图标 → 日常 Chrome 打开查询页【普通标签页】→ 自动换票/登录 → 就绪后进入
+30 分钟守护（单窗口守卫 + 中途会话失效自动续期）。**给 Mac 同事的分发包由 `make-dist.sh` 构建。**
 
-## 使用
+## 功能（v3）
 
-1. 安装（仅需一次 / 代码更新后重跑）：
+- **普通标签页入口**：不再使用 Chrome「应用快捷方式」的 app 独立窗口——那会让每次点击
+  都弹新窗口。普通窗口里 `_blank` 链接原生就是"同窗口新标签"。
+- **单窗口守卫**：就绪后向页面注入守卫脚本，把"带尺寸参数的弹窗式 window.open"拦下入队，
+  由 AppleScript 落成同窗口真标签页（守护期 30 分钟，之后由 Chrome 原生行为接管）。
+- **自动登录/续期**：IMS t=1 换票 + 主动会话探针 + 自动填表（沿用 v9/v10 实测选择器）。
+- **内置 Node 运行时**（arm64/x64 双架构官方 v22 LTS）：同事电脑无需安装任何依赖。
+- **首次使用引导**：首跑弹窗完整告知两个一次性权限（macOS 自动化控制 + Chrome
+  「允许 Apple 事件中的 JavaScript」），TCC 拒绝（-1743）也有专门指引。
 
-   ```bash
-   ./install.sh
-   ```
+## 给同事构建分发包
 
-2. 开启一次性权限（脚本首次运行会以弹窗引导）：
-
-   > Chrome 菜单 **查看 ▸ 开发者 ▸ 允许 Apple 事件中的 JavaScript**
-   > (与 Chrome 官方提示一致)
-
-3. 把 `~/Applications/企查查速查.app` 拖入 Dock。之后每天点它即可。
-
-## 流程
-
+```bash
+./make-dist.sh
 ```
-双击入口
- └─ open -a 「企业信息查询平台.app」（你的 Chrome shim，秒开应用窗口）
-     └─ 统一跳转 ims plugin.aspx?t=1 换取【新会话票据】
-         （插件会话存活期短、直连旧会话"一点就失效"，故每次启动都换新票；
-          IMS Cookie 长命——它有效则直接换票成功，无需登录）
-     ├─ IMS Cookie 有效 → 链路自动落回查询页 → 主动探针（模拟点击/输入触发鉴权）
-     │   → 稳定后在页面顶部显示"已就绪"提示条（全程约 10 秒）
-     └─ IMS Cookie 失效 → 自动切"账户登录"填账密提交 → 回查询页 → 探针 → 就绪
-         （密码错最多试 3 次，随后删除 ~/.qcc/ims-account.json 弹窗重录）
+
+产物：仓库根目录 `企查查速查-Mac安装包.zip`（约 77MB）。同事：解压 → 双击
+「安装企查查速查」（首次需右键→打开）→ 选「添加到 Dock」→ 完事。
+
+## 自用安装（开发者本机）
+
+```bash
+./install.sh          # 无 .dist-node 时会打包本机 node（仅当前架构）
 ```
 
 ## 文件
 
 | 文件 | 说明 |
 |---|---|
-| `launcher.sh` | .app 可执行入口：找 Node、单实例锁、日志 |
-| `login-heal.js` | 状态机：350ms 轮询检测 tab 状态，按需导航/填表 |
-| `runner.applescript` | AppleScript→Chrome 桥：枚举标签页 / 注入 JS / 导航 / 关页 |
-| `install.sh` | 组装安装到 `~/Applications/企查查速查.app` |
+| `launcher.sh` | .app 可执行入口：选内置/系统 Node、日志 |
+| `login-heal.js` | 状态机：就绪阶段（换票/填表/探针）+ 守护阶段（守卫注入/弹窗排空/续期） |
+| `runner.applescript` | AppleScript 桥：LIST / EVAL_FILE / NAV / **OPEN_TAB** / CLOSE_TAB |
+| `install.sh` | 组装安装到指定路径（默认 `~/Applications/企查查速查.app`） |
+| `get-node.sh` | 获取指定架构官方 Node（本机优先，否则下载 v22 LTS） |
+| `make-dist.sh` | 构建同事分发包 zip（含安装器 App 与说明） |
 
-- 日志：`~/Library/Logs/qcc-fast.log`（每次启动重建）
-- 凭据：`~/.qcc/ims-account.json`（0600，本机保存，App 内不含密码；与旧版 qcc-app 格式互通）
+- 日志：`~/Library/Logs/qcc-fast.log`
+- 凭据：`~/.qcc/ims-account.json`（0600，仅本机，不在仓库内）
 
-## 排障
+## 注意
 
-- **权限弹窗提示**：按上面第 2 步勾选后重试。
-- **多次输错密码**：凭据文件会被自动删除并弹窗重录。
-- **为什么不用系统通知横幅**：`osascript` 发的 `display notification` 会被 macOS 归因到
-  「脚本编辑器」，一点横幅就会打开脚本编辑器。已改为：就绪提示直接画在查询页顶部，
-  错误/引导类提示用对话框（`display dialog`），全程不再唤起任何额外应用。
-- **想回退旧版**：旧 qcc-app 已从仓库删除，git 历史里仍可找回（v7 提交）。
-
-## 与旧版方案的差异
-
-不再每次冷启动独立 Chrome 实例 + CDP 守护进程（那是打开慢的根因），也无需调试端口；
-日常 Chrome 主 profile 缓存热、窗口秒开，自动化改走 macOS AppleScript 事件通道。
+- **与浏览器扩展二选一**：同一台电脑不要同时用「企查查速查助手」扩展和本 App，
+  两套自动登录会互相抢。已装扩展的机器（如 Mars 本机）无需再装本 App。
+- 想回退历史版本：git 历史 `4e2611b` 前后有 v7~v10 全部源码。

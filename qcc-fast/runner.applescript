@@ -3,6 +3,7 @@
 --   LIST                                → 输出每行 "窗口id|tab序号|URL"
 --   EVAL_FILE <jsFile> <winId> <tabIdx> → 执行 jsFile 内容于指定 tab，返回其字符串结果
 --   NAV <winId> <tabIdx> <url>          → 指定 tab 导航
+--   OPEN_TAB <winId> <url>              → 同一窗口末尾开新标签并激活（单窗口守卫用）
 --   CLOSE_TAB <winId> <tabIdx>          → 关闭指定 tab
 
 on run argv
@@ -44,6 +45,12 @@ on run argv
 			set gWin to (gA as integer)
 			set gTab to (gB as integer)
 			set URL of tab gTab of window id gWin to gC
+			return "OK"
+
+		else if gMode is "OPEN_TAB" then
+			set gWin to (gA as integer)
+			make new tab at end of tabs of window id gWin with properties {URL:gC}
+			set active tab index of window id gWin to (count of tabs of window id gWin)
 			return "OK"
 
 		else if gMode is "CLOSE_TAB" then

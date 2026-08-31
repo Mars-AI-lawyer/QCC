@@ -2,3 +2,4 @@
 *.zip
 .git-auto.json
 .zcode/
+qcc-fast/.dist-node/

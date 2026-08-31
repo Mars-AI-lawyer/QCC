@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>企查查速查助手 · 首次使用引导</title>
+<style>
+  *{box-sizing:border-box;}
+  body{font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#f0f3f8;margin:0;padding:36px 16px 60px;color:#1c2438;}
+  .wrap{max-width:760px;margin:0 auto;}
+  header{text-align:center;margin-bottom:26px;}
+  header h1{font-size:24px;margin:0 0 8px;}
+  header p{color:#5c6b80;font-size:14px;margin:0;}
+  .card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.07);padding:26px 30px;margin-bottom:20px;}
+  .card h2{font-size:17px;margin:0 0 14px;display:flex;align-items:center;gap:8px;}
+  .badge{background:#2d8cf0;color:#fff;border-radius:20px;font-size:12px;padding:2px 10px;}
+  ol{margin:0;padding-left:0;list-style:none;counter-reset:step;}
+  ol li{counter-increment:step;position:relative;padding:10px 0 10px 44px;font-size:14px;line-height:1.8;border-bottom:1px dashed #eef0f3;}
+  ol li:last-child{border-bottom:none;}
+  ol li::before{content:counter(step);position:absolute;left:0;top:12px;width:26px;height:26px;border-radius:50%;
+    background:#eef4ff;color:#2d8cf0;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;}
+  kbd{background:#f1f3f6;border:1px solid #dfe3ea;border-bottom-width:2px;border-radius:6px;padding:1px 8px;font-size:13px;font-family:inherit;}
+  .hl{background:#fffbe6;border-radius:4px;padding:1px 5px;font-weight:600;}
+  .path{background:#f5f7fa;border-radius:6px;padding:2px 8px;font-size:13px;}
+  .two{display:flex;gap:16px;flex-wrap:wrap;}
+  .two>div{flex:1;min-width:280px;background:#f8fafc;border:1px solid #e8edf3;border-radius:12px;padding:14px 18px;}
+  .two h3{font-size:14px;margin:0 0 8px;}
+  .two p{font-size:13px;color:#515a6e;line-height:1.8;margin:0;}
+  .ok{color:#19be6b;font-weight:600;}
+  .warn{color:#f59f00;font-weight:600;}
+  .btns{display:flex;gap:12px;justify-content:center;margin-top:4px;}
+  .btns button{height:42px;padding:0 26px;border:none;border-radius:10px;font-size:15px;cursor:pointer;}
+  .primary{background:#2d8cf0;color:#fff;}
+  .primary:hover{background:#3d9bf5;}
+  .ghost{background:#fff;color:#2d8cf0;border:1px solid #c8dcf7 !important;}
+  details{margin-top:10px;}
+  summary{font-size:14px;font-weight:600;cursor:pointer;padding:6px 0;}
+  details p, details li{font-size:13px;color:#515a6e;line-height:1.9;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔍 企查查速查助手</h1>
+    <p>自动登录 · 单窗口标签管理 · Mac / Windows 通用（Chrome、Edge 均可）</p>
+  </header>
+
+  <div class="card">
+    <h2><span class="badge">第 1 步</span>安装扩展（约 1 分钟，仅需一次）</h2>
+    <ol>
+      <li>把收到的压缩包<b>解压</b>，得到 <span class="path">extension</span> 文件夹（整个文件夹要保留在电脑上，建议放到文档目录，<b>解压后不要删除</b>）。</li>
+      <li>打开 Chrome，在地址栏输入 <kbd>chrome://extensions</kbd> 后回车，进入「扩展程序」管理页。<br>
+        <span style="color:#808695;font-size:13px;">用 Edge 的话输入 <kbd>edge://extensions</kbd>，其余步骤相同。</span></li>
+      <li>打开页面上的 <span class="hl">「开发者模式」</span> 开关——Chrome 在<b>右上角</b>，Edge 在<b>左侧栏</b>。</li>
+      <li>点击 <span class="hl">「加载已解压的扩展程序」</span>（Mac：Load Unpacked），在弹出的文件夹选择框里选中刚才的 <span class="path">extension</span> 文件夹，点「选择」。</li>
+      <li>固定到工具栏：点地址栏右侧的拼图图标 🧩，找到「企查查速查助手」，点后面的图钉 📌。</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2><span class="badge">第 2 步</span>首次登录（只输入一次账号密码）</h2>
+    <ol>
+      <li>点击浏览器工具栏的 <b>企查查速查助手</b> 图标，会自动打开企查查查询页。</li>
+      <li>如果跳到登录页，会自动弹出「首次登录」框：输入你的 <b>IMS 账号和密码</b>，点「保存并登录」。</li>
+      <li>完成。之后每次打开都会自动登录，<b>不再需要重复输入</b>；会话过期时也会自动续期。</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>🛡️ 关于权限：不需要开启任何系统权限</h2>
+    <div class="two">
+      <div>
+        <h3>✅ 需要做的</h3>
+        <p>只有上面第 1 步的「开发者模式 + 加载已解压的扩展程序」。这是 Chrome 对非商店扩展的唯一要求，开关在扩展管理页里，不是系统设置。</p>
+      </div>
+      <div>
+        <h3>❌ 不需要动的</h3>
+        <p>不需要辅助功能、不需要屏幕录制、不需要「自动化」、不需要终端/开发者工具权限。如果任何软件让你去「系统设置 → 隐私与安全性」里授权，那不是本工具。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🔒 密码安全</h2>
+    <p style="font-size:13.5px;color:#515a6e;line-height:1.9;margin:0;">
+      你的账号密码只保存在<b>自己电脑的浏览器</b>里（扩展本地存储），不上传任何服务器、不随浏览器账号同步、
+      也不存在于代码和压缩包中。换电脑或换同事使用时，各自输入一次各自的 IMS 账号密码即可。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>❓ 常见问题</h2>
+    <details>
+      <summary>点击企业后应该在同一个窗口里开新标签，为什么有时还是弹出新窗口？</summary>
+      <p>请始终通过<b>工具栏扩展图标</b>（或 Mac 的 Dock「企查查速查」入口）打开查询页，让页面以普通标签页运行；
+         扩展会自动把企查查的弹窗改写到同一窗口的新标签里。如果直接从旧的书签/桌面快捷方式（应用窗口模式）打开，行为不受扩展控制。</p>
+    </details>
+    <details>
+      <summary>密码输错了 / 想更换账号？</summary>
+      <p>点下方「打开账号设置」修改，或在工具栏图标上<b>右键 → 选项</b>。连续登录失败 3 次时，扩展会自动停用已存密码并要求重新输入。</p>
+    </details>
+    <details>
+      <summary>公司电脑的 Chrome 提示「无法加载扩展 / 已被管理员停用」？</summary>
+      <p>个别企业管控版 Chrome 禁止加载未上架扩展，需要联系 IT 在管理策略中放行，或改用未受管控的 Chrome/Edge 个人版。</p>
+    </details>
+    <details>
+      <summary>Mac 用户想要 Dock 双击入口？</summary>
+      <p>在仓库的 <span class="path">qcc-fast</span> 目录执行 <span class="path">./install.sh</span>，
+         会安装「企查查速查」App 到 <span class="path">~/Applications</span>，拖入 Dock 即可；它只负责打开查询页，登录和单窗口逻辑同样由本扩展完成。</p>
+    </details>
+  </div>
+
+  <div class="btns">
+    <button id="openOptions" class="ghost">⚙️ 打开账号设置</button>
+    <button id="openSearch" class="primary">🚀 打开企查查查询页</button>
+  </div>
+</div>
+<script src="onboarding.js"></script>
+</body>
+</html>

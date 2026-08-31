@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * 企查查速查 · 登录自愈状态机（方案A：复用日常 Chrome）
+ * 企查查速查 · 登录自愈 + 单窗口守卫（v3：同事分发版，Mac Dock App 内置运行时）
  *
- * 与旧版 qcc-app（v7~v9，已删除）的差异：
- *  - 不再启动独立 Chrome 实例 + CDP 守护进程；
- *  - 通过 osascript（"允许 JavaScript from Apple Events"）操作日常 Chrome 的标签页；
- *  - 全程事件驱动轮询，无固定长 sleep；登录链路/选择器沿用 v9 实测结果：
- *      IMS 登录页: input[name=userid] / #userpwd|input[name=userpwd] / li[lay-id="ims"] 切账户登录
- *                  提交 .legal_click[data-click="login"]，兜底 #frmMain.submit()
- *      查询页:    pro-plugin.qcc.com/plugin-search，搜索框选择器组判定真实渲染
- *  - 凭据文件与旧版互通：~/.qcc/ims-account.json  { user, pass }（0600）
+ * 入口方式变更（相对 v2/v10）：
+ *  - 不再经由 Chrome「应用快捷方式」的 app 独立窗口打开（那是"点一下多一个窗口"的根源），
+ *    改为 open -a "Google Chrome" 直接开【普通标签页】——普通窗口里 target=_blank、
+ *    无尺寸参数的 window.open 原生就是"同窗口新标签"；
+ *  - 页面内注入守卫脚本：仅拦"带尺寸参数的弹窗式 window.open"（会强制开新窗的那种），
+ *    改入队列，由守护阶段经 AppleScript 落成同窗口真标签页；
+ *  - 就绪后进入守护阶段（30 分钟）：持续注入守卫、清空弹窗队列、会话失效自动换票；
+ *    守护结束后 Chrome 原生行为已覆盖绝大多数场景。
+ *
+ * 首次使用引导（首次运行必看）：
+ *  - macOS 弹「“企查查速查”想要控制“Google Chrome”」→ 点【好】（误点拒绝也可在
+ *    系统设置 ▸ 隐私与安全性 ▸ 自动化 里补开，本脚本检测到 -1743 会给出完整指引）；
+ *  - Chrome 菜单「查看 ▸ 开发者 ▸ 允许 Apple 事件中的 JavaScript」勾选。
+ *
+ * 登录链路/选择器沿用 v9/v10 实测结果：
+ *   IMS 登录页: input[name=userid] / #userpwd|input[name=userpwd] / li[lay-id="ims"] 切账户登录
+ *               提交 .legal_click[data-click="login"]，兜底 #frmMain.submit()
+ *   查询页:    pro-plugin.qcc.com/plugin-search，搜索框选择器组判定真实渲染
+ * 凭据：~/.qcc/ims-account.json  { user, pass }（0600，仅本机）
  */
 
 const { spawnSync } = require('child_process');
@@ -19,9 +30,10 @@ const path = require('path');
 const os = require('os');
 
 // ---------- 配置 ----------
-const SHIM_APP = '/Users/mars/Applications/Chrome Apps.localized/企业信息查询平台.app';
+const PLUGIN_SEARCH_URL = 'https://pro-plugin.qcc.com/plugin-search';
 const IMS_T1_URL = 'https://ims.allbrightlaw.com/sysAuth/plugin.aspx?t=1';
 const CRED_FILE = path.join(os.homedir(), '.qcc', 'ims-account.json');
+const WELCOME_FLAG = path.join(os.homedir(), '.qcc', 'welcome.done');
 
 const RUNNER = (() => {
   const bundled = path.join(__dirname, '..', 'Resources', 'runner.applescript');
@@ -29,12 +41,15 @@ const RUNNER = (() => {
 })();
 
 const POLL_MS = 350;
-const TOTAL_BUDGET_MS = 25_000;   // 整体预算
+const TOTAL_BUDGET_MS = 25_000;   // 就绪阶段整体预算
 const FILL_COOLDOWN_MS = 3_000;
 const NAV_COOLDOWN_MS = 4_500;
 const MAX_FILLS = 3;              // 每组凭据最多填表次数
 const MAX_NAVS = 4;               // 跳 IMS t=1 换票最多次数
 const CRED_ROUNDS = 2;            // 最多重录凭据轮数
+const WATCH_POLL_MS = 1_500;      // 守护阶段轮询
+const WATCH_BUDGET_MS = 30 * 60_000; // 守护阶段时长
+const WATCH_EMPTY_EXIT_MS = 20_000;  // 相关标签页全关后多久退出守护
 
 const OSA = '/usr/bin/osascript';
 const LOCK_DIR = path.join(os.homedir(), '.qcc', 'fast.lock');
@@ -62,12 +77,14 @@ process.on('exit', () => {
 });
 
 // ---------- osascript 基础 ----------
+let lastOsaErr = '';
 function osa(args, timeoutMs) {
   const r = spawnSync(OSA, args, { timeout: timeoutMs || 9000, encoding: 'utf8' });
+  lastOsaErr = (r.stderr || '').trim();
   return {
     status: r.status,
     stdout: (r.stdout || '').trim(),
-    stderr: (r.stderr || '').trim(),
+    stderr: lastOsaErr,
   };
 }
 
@@ -79,13 +96,20 @@ function isPermErr(stderr) {
   );
 }
 
+// macOS TCC 自动化权限被拒（-1743）或未授权
+function isAuthErr(stderr) {
+  if (!stderr) return false;
+  const s = stderr.toLowerCase();
+  return s.includes('-1743') || s.includes('not authoriz') || s.includes('not allowed to send');
+}
+
 function notify(msg) {
-  // 用 display dialog 而非 display notification：osascript 发的系统通知横幅会被
-  // macOS 归因到"脚本编辑器"，一旦点横幅/通知中心条目就会打开脚本编辑器；对话框无此副作用。
+  // 用 display dialog 而非 display notification：系统通知横幅会被归因到"脚本编辑器"，
+  // 一点横幅就会打开脚本编辑器；对话框无此副作用。
   const esc = String(msg).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   spawnSync(OSA, [
-    '-e', `display dialog "${esc}" with title "企查查速查" buttons {"好"} default button "好" giving up after 30`,
-  ], { timeout: 35_000, encoding: 'utf8' });
+    '-e', `display dialog "${esc}" with title "企查查速查" buttons {"好"} default button "好" giving up after 120`,
+  ], { timeout: 130_000, encoding: 'utf8' });
 }
 
 function ask(text, hidden) {
@@ -108,10 +132,30 @@ function writeTmpJs(js) {
   return file;
 }
 
+// ---------- 首次使用引导 ----------
+function maybeWelcome() {
+  if (fs.existsSync(WELCOME_FLAG)) return true;
+  const msg = [
+    '首次使用，需要两个【一次性】设置，之后每天双击即用：',
+    '',
+    '1️⃣  稍后 macOS 若弹出「“企查查速查”想要控制“Google Chrome”」→ 点【好】',
+    '　  （误点了也没关系：系统设置 ▸ 隐私与安全性 ▸ 自动化 ▸ 勾选 Google Chrome）',
+    '',
+    '2️⃣  在 Chrome 顶部菜单栏点【查看 ▸ 开发者】，勾选【允许 Apple 事件中的 JavaScript】',
+    '',
+    '点【开始】后我将自动打开查询页并完成登录。',
+  ].join('\n');
+  const esc = msg.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const r = spawnSync(OSA, [
+    '-e', `display dialog "${esc}" with title "企查查速查 · 首次使用" buttons {"取消", "开始"} default button "开始" with icon note`,
+  ], { timeout: 300_000, encoding: 'utf8' });
+  return r.status === 0;
+}
+
 // ---------- Chrome 操作 ----------
 function listTabs() {
   const r = osa([RUNNER, 'LIST'], 6000);
-  if (r.status !== 0) return null; // Chrome 未就绪 / 权限等
+  if (r.status !== 0) return null; // Chrome 未就绪 / TCC / AS-JS 权限等
   const out = [];
   for (const line of r.stdout.split('\n')) {
     const parts = line.split('|');
@@ -132,12 +176,15 @@ function nav(winId, idx, url) {
   return osa([RUNNER, 'NAV', String(winId), String(idx), url], 6000);
 }
 
+function openTab(winId, url) {
+  return osa([RUNNER, 'OPEN_TAB', String(winId), url], 6000);
+}
+
 function closeTab(winId, idx) {
   return osa([RUNNER, 'CLOSE_TAB', String(winId), String(idx)], 6000);
 }
 
-// 页面内提示条：替代系统通知横幅（横幅会被归因到"脚本编辑器"，点开即弹编辑器）。
-// 直接把就绪提示画在企查查页面上，用户视线本来就在这里。
+// 页面内提示条：替代系统通知横幅。
 function pageToast(winId, idx, msg) {
   const js = `(() => {
   try {
@@ -160,6 +207,36 @@ function pageToast(winId, idx, msg) {
   return !r.err && (r.val === 'OK' || r.raw === 'OK');
 }
 
+// ---------- 单窗口守卫 + 弹窗队列排空（页内注入） ----------
+// 普通窗口里：target=_blank 与无参数 window.open 原生就是"同窗口新标签"，放行；
+// 只有带尺寸参数的弹窗式 window.open 会强制开新窗 —— 拦下入队，由守护阶段开成真标签。
+const GUARD_JS = `(() => {
+  try {
+    if (!window.__qccGuardV1) {
+      window.__qccGuardV1 = true;
+      window.__qccQ = window.__qccQ || [];
+      const native = window.open.bind(window);
+      const stub = () => ({ closed: false, opener: null, focus(){}, blur(){}, close(){}, postMessage(){} });
+      window.open = function (u, n, f) {
+        try {
+          const raw = u == null ? '' : String(u);
+          if (raw.trim() === '' || /^javascript:/i.test(raw.trim())) return native(u, n, f);
+          const abs = new URL(raw, location.href).href;
+          const feat = f == null ? '' : String(f);
+          if (feat === '') return native(abs, '_blank'); // 原生行为 = 同窗口新标签
+          window.__qccQ.push(abs);                        // 弹窗式 → 入队
+          return stub();
+        } catch (e) { return native(u, n, f); }
+      };
+    }
+    const q = window.__qccQ || [];
+    window.__qccQ = [];
+    let bt = ''; try { bt = document.body ? document.body.innerText : ''; } catch (e) {}
+    const prompt = /请先登录|未登录|登录.{0,6}(失效|过期)|会话.{0,6}(失效|过期)|重新登录|重新进入/.test(bt);
+    return JSON.stringify({ q, prompt });
+  } catch (e) { return JSON.stringify({ q: [], err: String(e) }); }
+})()`;
+
 // ---------- 页面检测 / 填表 JS ----------
 const DETECT_JS = `(() => {
   try {
@@ -180,7 +257,7 @@ const DETECT_JS = `(() => {
 
 // 主动会话探针：该页面在被动渲染时不校验会话，直到用户点击输入框才发鉴权请求，
 // 然后才切换"登录状态失效"占位页。因此就绪判定必须自己模拟一次点击+输入，
-// 把假就绪当场暴露出来（顺带完成旧版 v9 的懒加载预热效果）。
+// 把假就绪当场暴露出来（顺带完成懒加载预热效果）。
 const PROBE_TRIGGER_JS = `(() => {
   try {
     const sels = ['.search-box input','#searchInput','input[placeholder*="企业"]','input[placeholder*="公司"]','input[placeholder*="统一社会信用"]','input[placeholder*="查"]'];
@@ -267,7 +344,7 @@ function scoreOf(url) {
   if (/pro-plugin\.qcc\.com\//.test(url)) return 4;
   if (/ims\.allbrightlaw\.com/.test(url)) return 3;
   if (/qcc\.com/.test(url)) return 2;
-  if (/^about:blank$/.test(url)) return 1; // shim 刚打开的壳
+  if (/^about:blank$/.test(url)) return 1;
   return 0;
 }
 
@@ -289,9 +366,9 @@ function getCredentials() {
   let c = loadCred();
   if (c) return c;
   log('请求录入凭据…');
-  const user = ask('请输入IMS登录账号', false);
+  const user = ask('请输入IMS登录账号（仅保存在本机）', false);
   if (user == null || !user) return null;
-  const pass = ask('请输入IMS登录密码', true);
+  const pass = ask('请输入IMS登录密码（仅保存在本机）', true);
   if (pass == null || !pass) return null;
   c = { user, pass };
   saveCred(c);
@@ -299,17 +376,67 @@ function getCredentials() {
   return c;
 }
 
-// ---------- 主流程 ----------
+// ---------- 入口 ----------
+function openEntry() {
+  // 普通标签页而非 app 独立窗口：这是"点击永远只在同一窗口开新标签"的前提
+  const r = spawnSync('/usr/bin/open', ['-a', 'Google Chrome', PLUGIN_SEARCH_URL], { timeout: 10_000 });
+  return r.status === 0;
+}
+
 async function preflightPerm() {
   // Chrome 未运行时无法探测，交给主流程自然处理
   const tabs = listTabs();
-  if (!tabs || !tabs.length) return { unknown: true };
+  if (!tabs || !tabs.length) {
+    if (isAuthErr(lastOsaErr)) return { auth: true };
+    return { unknown: true };
+  }
   const f = writeTmpJs('1'); // 无害探测
   const r = evalFile(f, tabs[0].winId, tabs[0].idx);
   if (r.err && isPermErr(r.err)) return { off: true };
   return { ok: true };
 }
 
+// ---------- 守护阶段：守卫注入 / 弹窗排空 / 中途失效自愈 ----------
+async function watchPhase() {
+  const deadline = Date.now() + WATCH_BUDGET_MS;
+  let lastHealAt = 0;
+  let emptySince = 0;
+  while (Date.now() < deadline) {
+    await sleep(WATCH_POLL_MS);
+    const tabs = listTabs();
+    if (!tabs) continue;
+    const rel = tabs.filter((t) => /pro-plugin\.qcc\.com|ims\.allbrightlaw\.com/.test(t.url));
+    if (!rel.length) {
+      if (!emptySince) emptySince = Date.now();
+      if (Date.now() - emptySince > WATCH_EMPTY_EXIT_MS) { log('相关标签页均已关闭，守护结束'); return; }
+      continue;
+    }
+    emptySince = 0;
+    for (const t of rel) {
+      const f = writeTmpJs(GUARD_JS);
+      const r = evalFile(f, t.winId, t.idx);
+      if (r.err) continue;
+      let v = r.val;
+      if (typeof v === 'string') { try { v = JSON.parse(v); } catch {} }
+      if (!v || typeof v !== 'object') continue;
+      if (Array.isArray(v.q)) {
+        for (const u of v.q) {
+          if (!/^https?:/i.test(u)) continue;
+          log('拦截弹窗式 window.open → 同窗口新标签:', u.slice(0, 90));
+          openTab(t.winId, u);
+        }
+      }
+      if (v.prompt && /plugin-search/.test(t.url) && Date.now() - lastHealAt > NAV_COOLDOWN_MS) {
+        log('守护：会话失效 → 跳 IMS t=1 换票');
+        nav(t.winId, t.idx, IMS_T1_URL);
+        lastHealAt = Date.now();
+      }
+    }
+  }
+  log('守护阶段结束；此后的新标签行为由 Chrome 普通窗口原生接管');
+}
+
+// ---------- 主流程 ----------
 async function main() {
   if (!acquireLock()) {
     notify('上一个实例还在处理中，请稍候');
@@ -318,16 +445,27 @@ async function main() {
     return;
   }
 
+  if (!maybeWelcome()) {
+    log('用户取消首次引导，退出');
+    return;
+  }
+
   const pf = await preflightPerm();
   if (pf.off) {
-    notify('请先开启权限：Chrome 查看菜单 > 开发者 > 允许 Apple 事件中的 JavaScript');
+    notify('请先开启权限（一次性）：\nChrome 顶部菜单栏 → 查看 → 开发者 → 勾选「允许 Apple 事件中的 JavaScript」，然后重新双击图标');
     log('==== 结束：缺少 AS-JS 权限（未打开任何窗口） ====');
     process.exitCode = 3;
     return;
   }
+  if (pf.auth) {
+    notify('请先开启权限（一次性）：\n系统设置 → 隐私与安全性 → 自动化 → 勾选「企查查速查」下的 Google Chrome，然后重新双击图标');
+    log('==== 结束：TCC 自动化权限被拒 ====');
+    process.exitCode = 3;
+    return;
+  }
 
-  log('==== 启动 · 打开入口 ====');
-  spawnSync('/usr/bin/open', ['-a', SHIM_APP]);
+  log('==== 启动 · 打开入口（普通标签页） ====');
+  openEntry();
 
   const deadline = Date.now() + TOTAL_BUDGET_MS;
   let fills = 0, navs = 0, credRound = 0;
@@ -345,17 +483,18 @@ async function main() {
 
     let tabs = listTabs();
 
-    // 一直没有可用标签页 → 中途再拉起一次 shim 兜底
+    // 一直没有可用标签页 → 中途再拉起一次入口兜底
     if (!tabs || !tabs.some((t) => scoreOf(t.url) > 0)) {
+      if (isAuthErr(lastOsaErr)) { result = 'AUTH'; break; }
       if (tabs && Date.now() > reopenAllowedAt) {
         log('未发现企查查相关标签页，再次拉起入口');
-        spawnSync('/usr/bin/open', ['-a', SHIM_APP]);
+        openEntry();
         reopenAllowedAt = Date.now() + 12_000;
       }
       continue;
     }
 
-    // 关键设计：shim 直连的 plugin-search 用的是上次残留的旧会话（票据存活期短，
+    // 关键设计：直连的 plugin-search 用的是上次残留的旧会话（票据存活期短，
     // 经常"看着正常、一点就失效"）。因此每次启动看到查询页后，统一先跳 IMS t=1
     // 换一张新票——IMS Cookie 才是长命的，只要它有效就无需登录、直接换到新会话。
     if (!enteredViaT1) {
@@ -448,7 +587,7 @@ async function main() {
     }
   }
 
-  // 收尾：成功则清理重复查询页并通知
+  // 收尾：成功则清理重复查询页、注入守卫并通知，然后进入守护阶段
   if (result === 'READY') {
     for (let i = 0; i < 5; i++) {
       const tabs = listTabs() || [];
@@ -459,17 +598,26 @@ async function main() {
       closeTab(dup.winId, dup.idx);
       await sleep(200);
     }
+    evalFile(writeTmpJs(GUARD_JS), chosen.winId, chosen.idx); // 就绪页立刻带上守卫
     if (!pageToast(chosen.winId, chosen.idx, '✅ 企查查已就绪，可以直接查询')) {
       notify('已就绪，可以直接查询');
     }
-    log('==== 完成：就绪 ====');
+    try { fs.writeFileSync(WELCOME_FLAG, String(Date.now())); } catch {}
+    log('==== 完成：就绪，进入守护阶段 ====');
+    await watchPhase();
     process.exitCode = 0;
     return;
   }
 
   if (permOff) {
-    notify('请先开启权限：Chrome 查看菜单 > 开发者 > 允许 Apple 事件中的 JavaScript');
+    notify('请先开启权限（一次性）：\nChrome 顶部菜单栏 → 查看 → 开发者 → 勾选「允许 Apple 事件中的 JavaScript」，然后重新双击图标');
     log('==== 结束：缺少 AS-JS 权限 ====');
+    process.exitCode = 3;
+    return;
+  }
+  if (result === 'AUTH') {
+    notify('请先开启权限（一次性）：\n系统设置 → 隐私与安全性 → 自动化 → 勾选「企查查速查」下的 Google Chrome，然后重新双击图标');
+    log('==== 结束：TCC 自动化权限被拒 ====');
     process.exitCode = 3;
     return;
   }
