@@ -1,72 +1,71 @@
-# 企查查速查 · 分发说明
+# 企查查速查助手
 
 ![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows-0969da)
 ![浏览器](https://img.shields.io/badge/浏览器-Chrome%20%7C%20Edge-2ea44f)
 ![系统权限](https://img.shields.io/badge/系统权限-无需开启-success)
 ![密码](https://img.shields.io/badge/密码-仅存本机-orange)
-![Mac入口](https://img.shields.io/badge/Mac入口-Dock双击即用-8250df)
-![版本](https://img.shields.io/badge/版本-Mac%20App%20v3.3%20%7C%20扩展%20v1.2-informational)
+![版本](https://img.shields.io/badge/版本-v1.2.1-informational)
 
-一键打开企查查插件查询页，自动完成 IMS 登录与续期；所有点击都收敛在**同一个窗口**里以新标签管理。
-按同事的电脑类型二选一（**同一台电脑不要两个都装**，两套自动登录会互相抢）：
+一个 Chrome 扩展，**Mac 和 Windows 通用**（Chrome、Edge 均可）：
+一键打开企查查插件查询页，自动完成 IMS 登录与续期；所有点击都收敛在**同一个窗口**里，以新标签页管理。
 
-| 同事电脑 | 发给他 | 同事要做什么 |
-|---|---|---|
-| **Mac** | `QCC-Mac-Installer.zip` | 解压 → 双击「安装企查查速查」（首次需右键→打开）→ 选「添加到 Dock」→ 完成。之后每天双击 Dock 图标。 |
-| **Windows** | `qcc-extension.zip` | 解压 → 按自动弹出的图文引导装扩展（约 1 分钟）→ 点工具栏图标使用。 |
+分发包：[Releases · v1.2.1](https://github.com/Mars-AI-lawyer/QCC/releases/tag/v1.2.1) 下载 `qcc-extension.zip`（私密仓库需有访问权限，没有权限就直接把 zip 文件发给你）。
 
-两个包已挂在本仓库 [Releases · v3.0](https://github.com/Mars-AI-lawyer/QCC/releases/tag/v3.0)（私密仓库，同事需有访问权限；没有权限就直接把 zip 文件发给他）。都不会上传任何账号密码。
+## 一、安装（Mac / Windows 步骤完全相同，约 1 分钟）
 
----
+> 以 Chrome 为例；Edge 只是把 `chrome://extensions` 换成 `edge://extensions`，其余完全相同。
 
-## Mac：Dock App（`企查查速查-Mac安装包.zip`）
+1. **解压** `qcc-extension.zip`，得到 `extension` 文件夹。
+   ⚠️ 这个文件夹要一直留在电脑上（建议放到「文档」目录），**解压后不要删除**，扩展靠它运行。
+2. 打开 Chrome，在**地址栏输入** `chrome://extensions` 后回车，进入「扩展程序」管理页。
+3. 打开页面上的 **「开发者模式」** 开关（Chrome 在**右上角**；Edge 在**左侧栏**）。
+4. 点击 **「加载已解压的扩展程序」**，选中上一步的 `extension` 文件夹 → 点「选择」。
+5. 固定到工具栏：点地址栏右侧的拼图图标 🧩，找到「企查查速查助手」，点后面的图钉 📌。
+6. 安装完成会自动弹出「首次使用引导」页，之后忘了怎么用可以随时回看。
 
-- 零依赖：内置双架构（Apple Silicon / Intel）官方 Node 运行时，同事无需装任何东西。
-- 自动登录：首次输入一次 IMS 账号密码（只存本机 `~/.qcc/ims-account.json`，0600），之后自动登录、自动续期。
-- 首次使用的两个一次性权限，App 会弹窗全程引导：
-  1. macOS 弹「“企查查速查”想要控制“Google Chrome”」→ 点【好】；
-  2. Chrome 菜单栏【查看 ▸ 开发者 ▸ 勾选 允许 Apple 事件中的 JavaScript】。
-- 单窗口：入口用普通标签页 + 页面内守卫，点击企业/详情都只在当前窗口开新标签。
-- 日志：`~/Library/Logs/qcc-fast.log`；密码错了会自动弹窗重录。
+## 二、首次登录（只输入一次账号密码）
 
-## Windows：Chrome 扩展（`qcc-extension.zip`）
+1. 点浏览器工具栏的 **企查查速查助手** 图标 → 自动打开企查查查询页。
+2. 若跳到登录页，会自动弹出「首次登录」框：输入你的 **IMS 账号和密码** → 「保存并登录」。
+3. 完成。之后每次打开**自动登录**；会话过期时在后台自动续期，无需重复输入。
 
-- Mac 的 Chrome/Edge 也能用同一份扩展（但 Mac 同事建议用上面的 Dock App，二选一）。
-- 安装五步（扩展装好会**自动弹出图文引导页**，照着做即可）：
-  解压 → 地址栏输入 `chrome://extensions` → 打开右上角「开发者模式」→
-  「加载已解压的扩展程序」选 `extension` 文件夹 → 拼图图标里固定到工具栏。
-- **不需要任何系统权限**（不需要辅助功能/自动化/屏幕录制）；扩展只访问
-  `pro-plugin.qcc.com` 和 `ims.allbrightlaw.com` 两个网站。
-- 密码只存本机浏览器扩展存储（`chrome.storage.local`），不上传、不同步；
-  工具栏图标右键 →「选项」可修改/清除；连错 3 次自动停用已存密码。
-- 注意：`extension` 文件夹解压后要一直留在电脑上，别删。
+## 三、关于权限：不需要开启任何系统权限
 
-## 密码与代码安全
+- ✅ 唯一要做的：上面第一步的 **「开发者模式 + 加载已解压的扩展程序」**。
+  这是 Chrome 对非商店扩展的唯一要求，开关就在扩展管理页里，**不是**系统设置。
+- ❌ 不需要：辅助功能、屏幕录制、「自动化」、完全磁盘访问、终端权限……
+  如果有软件让你去「系统设置 → 隐私与安全性」授权，那不是本工具，请勿授权。
+- 扩展只访问三个网站：`pro-plugin.qcc.com`（企查查插件）、`www.qcc.com`（企业详情）、`ims.allbrightlaw.com`（IMS 登录）。
 
-- 两个分发包、本仓库源码内**均不含任何账号密码**，可放心外发/推送 GitHub。
-- 同事的密码分别只存在各自电脑（Mac：本机文件；Windows：浏览器本地存储），换电脑需重输一次。
+## 四、密码安全（不会上传 GitHub）
 
-## 开发者（Mars）备忘
+- 账号密码保存在**你自己电脑的浏览器**里（扩展本地存储 `chrome.storage.local`）：
+  不上传任何服务器、不随浏览器账号同步、也不在代码仓库中。
+- 代码仓库内**不含任何账号密码**，可以放心分享/推送到 GitHub。
+- 换电脑、换同事使用：各自解压安装后，各自输入一次各自的 IMS 账号密码即可。
+- 修改/清除密码：工具栏图标**右键 → 选项**；连续登录失败 3 次会自动停用已存密码并要求重录。
 
-```
-extension/            Chrome 扩展源码（跨平台主体）
-qcc-fast/             Mac Dock App 源码
-  make-dist.sh        构建 Mac 分发包 zip（双架构 Node 自动就位）
-  install.sh          自用安装到 ~/Applications/企查查速查.app
-  get-node.sh         获取官方 Node 二进制（本机优先/下载 v22 LTS）
-qcc-extension.zip      → 发 Windows 同事
-QCC-Mac-Installer.zip  → 发 Mac 同事（GitHub Release v3.0 已挂同款包）
-```
+## 五、单窗口标签管理
 
-- 已装扩展的机器（如本机）不要再跑 `install.sh` 装 Dock App，二选一。
-- 代码更新后重新分发：Mac 跑 `./make-dist.sh` 重打包；Windows 重新打包 `extension/`，
-  同事覆盖原文件夹后在扩展管理页点刷新 ↻（账号密码不丢）。
+- 点击搜索结果里的企业、或在详情页里继续点击，都会在**当前窗口的右侧开新标签**，不再弹出新窗口。
+- 请通过**工具栏扩展图标**打开查询页（可在 `chrome://extensions/shortcuts` 设快捷键，如 Alt+Q）；
+  从旧的书签/桌面快捷方式打开时行为可能不受扩展控制。
 
-## 排障速查
+## 六、排障
 
 | 现象 | 处理 |
 |---|---|
-| Mac 点 Dock 没反应 | 看 `~/Library/Logs/qcc-fast.log`；多数是权限 1/2 未开，App 弹窗有完整指引 |
-| Mac 仍弹新窗口 | 确认是双击 Dock 图标打开（普通标签页），而不是旧的桌面「应用快捷方式」 |
-| Win 点扩展没反应 | `chrome://extensions` 确认已启用；点「服务工作进程」看日志 |
-| Win 提示「已被管理员停用」 | 企业管控版 Chrome 禁止未上架扩展，需 IT 放行或用个人版 Chrome/Edge |
+| 点扩展图标没反应 | 确认 `chrome://extensions` 里「企查查速查助手」已启用；点开「服务工作进程」可看日志 |
+| 提示会话已失效、要求手动登录 | 多次自动换票失败（如密码已被修改）：页面手动登录一次，或到「选项」里更新密码 |
+| 加载扩展时提示「已被管理员停用」 | 企业管控版 Chrome 禁止未上架扩展，需 IT 放行，或改用个人版 Chrome/Edge |
+| 仍弹新窗口 | 检查查询页是否从旧「应用快捷方式」打开；改用扩展图标打开 |
+
+---
+
+## 开发者备忘（Mars）
+
+- 源码：`extension/`（MV3：background service worker + content scripts，登录/换票选择器沿用 v9/v10 实测结果）。
+- 打包分发：`zip -rq qcc-extension.zip extension -x "*.DS_Store"`，挂到 GitHub Release（**附件名不能是中文**）。
+- 代码更新后：重打包发新 zip → 同事覆盖原 `extension` 文件夹 → 扩展管理页点刷新 ↻（账号密码不丢）。
+- 历史：曾有过 Mac Dock App 方案（AppleScript + Node，v7~v3.3），2026-08-31 起统一为扩展方案；
+  旧源码在 git 历史中（`f5d1070` 及之前），本机如有残留可删除 `~/Applications/企查查速查.app`。

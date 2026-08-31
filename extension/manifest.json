@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "企查查速查助手",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "企查查插件查询入口：自动登录、单窗口标签管理，Mac / Windows 通用",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
