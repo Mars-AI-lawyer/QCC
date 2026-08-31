@@ -1,7 +1,7 @@
 # 企查查速查助手
 
 <p align="center">
-  <img src="docs/images/mascot.png" alt="企查查速查助手 · 卡通形象" width="300">
+  <img src="docs/images/mascot.webp" alt="企查查速查助手 · 卡通形象" width="280">
 </p>
 
 > **适用对象**：所内同事（内部工具）。
