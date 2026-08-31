@@ -78,6 +78,11 @@ function storageRemove(keys) {
 function showPanel(opts) {
   if (document.getElementById('__qcc_cred_panel')) return;
 
+  // 需要用户手动处理：请求 background 把本（后台）标签激活到前台
+  try {
+    chrome.runtime.sendMessage({ type: 'SURFACE_LOGIN' }, () => void chrome.runtime.lastError);
+  } catch (e) {}
+
   const wrap = document.createElement('div');
   wrap.id = '__qcc_cred_panel';
   wrap.innerHTML = `

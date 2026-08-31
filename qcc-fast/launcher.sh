@@ -33,5 +33,9 @@ if [ -z "$NODE" ] || [ ! -x "$NODE" ]; then
   exit 1
 fi
 
-echo "==== ${APP_NAME} 启动 $(date) ====" >"$LOG"
+# 日志改为追加+轮转，保留历史便于排查
+if [ -f "$LOG" ] && [ "$(stat -f%z "$LOG" 2>/dev/null || echo 0)" -gt 524288 ]; then
+  mv "$LOG" "$LOG.1"
+fi
+echo "==== ${APP_NAME} 启动 $(date) ====" >>"$LOG"
 exec "$NODE" "$HEAL" >>"$LOG" 2>&1

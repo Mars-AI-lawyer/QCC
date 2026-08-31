@@ -4,6 +4,9 @@
 --   EVAL_FILE <jsFile> <winId> <tabIdx> → 执行 jsFile 内容于指定 tab，返回其字符串结果
 --   NAV <winId> <tabIdx> <url>          → 指定 tab 导航
 --   OPEN_TAB <winId> <url>              → 同一窗口末尾开新标签并激活（单窗口守卫用）
+--   BG_TAB <winId> <origIdx> <url>      → 末尾开新标签后立刻把焦点还原到 origIdx（后台换票用）
+--   RELOAD <winId> <tabIdx>             → 重新加载指定 tab
+--   ACTIVATE_TAB <winId> <tabIdx>       → 激活指定 tab（需要用户手动登录时才用）
 --   CLOSE_TAB <winId> <tabIdx>          → 关闭指定 tab
 
 on run argv
@@ -51,6 +54,25 @@ on run argv
 			set gWin to (gA as integer)
 			make new tab at end of tabs of window id gWin with properties {URL:gC}
 			set active tab index of window id gWin to (count of tabs of window id gWin)
+			return "OK"
+
+		else if gMode is "BG_TAB" then
+			set gWin to (gA as integer)
+			set gOrig to (gB as integer)
+			make new tab at end of tabs of window id gWin with properties {URL:gC}
+			set active tab index of window id gWin to gOrig
+			return "OK"
+
+		else if gMode is "RELOAD" then
+			set gWin to (gA as integer)
+			set gTab to (gB as integer)
+			reload tab gTab of window id gWin
+			return "OK"
+
+		else if gMode is "ACTIVATE_TAB" then
+			set gWin to (gA as integer)
+			set gTab to (gB as integer)
+			set active tab index of window id gWin to gTab
 			return "OK"
 
 		else if gMode is "CLOSE_TAB" then

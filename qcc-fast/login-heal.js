@@ -180,6 +180,18 @@ function openTab(winId, url) {
   return osa([RUNNER, 'OPEN_TAB', String(winId), url], 6000);
 }
 
+function bgTab(winId, origIdx, url) {
+  return osa([RUNNER, 'BG_TAB', String(winId), String(origIdx), url], 8000);
+}
+
+function reloadTab(winId, idx) {
+  return osa([RUNNER, 'RELOAD', String(winId), String(idx)], 6000);
+}
+
+function activateTab(winId, idx) {
+  return osa([RUNNER, 'ACTIVATE_TAB', String(winId), String(idx)], 6000);
+}
+
 function closeTab(winId, idx) {
   return osa([RUNNER, 'CLOSE_TAB', String(winId), String(idx)], 6000);
 }
@@ -396,6 +408,60 @@ async function preflightPerm() {
   return { ok: true };
 }
 
+// ---------- 后台换票/登录（用户眼前始终停留在查询页，绝不跳去 IMS） ----------
+// 开一个不抢焦点的临时标签走 IMS t=1：
+//   会话有效 → 直接落回查询页：关临时标签、刷新查询页，全程无感；
+//   会话失效 → 在后台临时标签里自动填账密提交；
+//   只有没凭据/多次失败时，才把登录页亮出来让用户处理（处理完自动收尾返回）。
+async function healViaBackground(anchor) {
+  const before = listTabs() || [];
+  const inWin = before.filter((t) => t.winId === anchor.winId);
+  const bgIdx = inWin.length + 1; // 新临时标签落在窗口末尾的 1-based 序号
+  const r = bgTab(anchor.winId, anchor.idx, IMS_T1_URL);
+  if (r.status !== 0) return false;
+
+  let deadline = Date.now() + 30_000;
+  let fills = 0, lastFillAt = 0, surfaced = false;
+  while (Date.now() < deadline) {
+    await sleep(500);
+    const tabs = listTabs();
+    if (!tabs) continue;
+    const bg = tabs.find((t) => t.winId === anchor.winId && t.idx === bgIdx);
+    if (!bg) return surfaced; // 被用户关掉：亮出前视为失败，亮出后视为用户已自行处理
+    const u = bg.url;
+    if (/pro-plugin\.qcc\.com\/plugin-search/.test(u)) {
+      closeTab(anchor.winId, bgIdx);   // 临时标签在窗口末尾，关闭不影响 anchor 序号
+      reloadTab(anchor.winId, anchor.idx);
+      return true;
+    }
+    if (/ims\.allbrightlaw\.com/.test(u) && !surfaced && Date.now() - lastFillAt > FILL_COOLDOWN_MS) {
+      const f = writeTmpJs(DETECT_JS);
+      const res = evalFile(f, bg.winId, bg.idx);
+      const st = res.err ? null : stateOf(u, res.val);
+      if (st === 'IMS_FORM') {
+        const c = getCredentials();
+        if (!c) {
+          log('无凭据 → 亮出登录页交由用户处理');
+          activateTab(anchor.winId, bg.idx);
+          surfaced = true; deadline = Date.now() + 90_000;
+          continue;
+        }
+        const f2 = writeTmpJs(buildFillJs(c.user, c.pass));
+        evalFile(f2, bg.winId, bg.idx);
+        fills += 1; lastFillAt = Date.now();
+        log('后台自动登录：填写提交 #' + fills);
+        if (fills >= MAX_FILLS) {
+          deleteCred();
+          notify('自动登录未成功，请在打开的登录页手动登录一次（完成后会自动返回查询页）');
+          activateTab(anchor.winId, bg.idx);
+          surfaced = true; deadline = Date.now() + 120_000;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 // ---------- 守护阶段：守卫注入 / 弹窗排空 / 中途失效自愈 ----------
 async function watchPhase() {
   const deadline = Date.now() + WATCH_BUDGET_MS;
@@ -422,14 +488,26 @@ async function watchPhase() {
       if (Array.isArray(v.q)) {
         for (const u of v.q) {
           if (!/^https?:/i.test(u)) continue;
+          if (/ims\.allbrightlaw\.com\/(sysAuth|system)/.test(u)) {
+            // 登录/换票类弹窗 → 后台处理，不亮出新标签
+            if (Date.now() - lastHealAt > NAV_COOLDOWN_MS) {
+              const search = tabs.find((x) => /pro-plugin\.qcc\.com\/plugin-search/.test(x.url));
+              if (search) {
+                log('拦截登录类弹窗 → 后台换票');
+                lastHealAt = Date.now();
+                await healViaBackground(search);
+              }
+            }
+            continue;
+          }
           log('拦截弹窗式 window.open → 同窗口新标签:', u.slice(0, 90));
           openTab(t.winId, u);
         }
       }
       if (v.prompt && /plugin-search/.test(t.url) && Date.now() - lastHealAt > NAV_COOLDOWN_MS) {
-        log('守护：会话失效 → 跳 IMS t=1 换票');
-        nav(t.winId, t.idx, IMS_T1_URL);
+        log('守护：会话失效 → 后台换票');
         lastHealAt = Date.now();
+        await healViaBackground(t);
       }
     }
   }
@@ -495,15 +573,15 @@ async function main() {
     }
 
     // 关键设计：直连的 plugin-search 用的是上次残留的旧会话（票据存活期短，
-    // 经常"看着正常、一点就失效"）。因此每次启动看到查询页后，统一先跳 IMS t=1
-    // 换一张新票——IMS Cookie 才是长命的，只要它有效就无需登录、直接换到新会话。
+    // 经常"看着正常、一点就失效"）。因此每次启动统一先换一张新票——但换票/登录
+    // 全部发生在后台临时标签里，用户眼前的页面不离开查询页、绝不跳去 IMS。
     if (!enteredViaT1) {
       const direct = tabs.find((t) => /^https?:\/\/pro-plugin\.qcc\.com\/plugin-search/.test(t.url));
       if (direct) {
-        log('直连查询页 → 统一走 IMS t=1 换新票');
-        nav(direct.winId, direct.idx, IMS_T1_URL);
+        log('直连查询页 → 后台换新票（不离开当前页面）');
         enteredViaT1 = true;
         lastNavAt = Date.now();
+        await healViaBackground(direct);
         continue;
       }
     }
@@ -579,11 +657,11 @@ async function main() {
 
     } else if (st === 'QCC_LOGIN_NEEDED' && chosen && Date.now() - lastNavAt > NAV_COOLDOWN_MS) {
       if (navs >= MAX_NAVS) { result = 'NAV_EXHAUSTED'; break; }
-      log('会话失效 → 跳转 IMS 换票链路');
+      log('会话失效 → 后台换票链路');
       probeState = 0;
-      nav(chosen.winId, chosen.idx, IMS_T1_URL);
       navs += 1;
       lastNavAt = Date.now();
+      await healViaBackground(chosen);
     }
   }
 
