@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "企查查速查助手",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "企查查插件查询入口：自动登录、单窗口标签管理，Mac / Windows 通用",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://ims.allbrightlaw.com/*",
-    "https://pro-plugin.qcc.com/*"
+    "https://pro-plugin.qcc.com/*",
+    "https://www.qcc.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -32,6 +33,19 @@
       "js": ["content/bridge.js", "content/qcc-page.js"],
       "run_at": "document_start",
       "all_frames": false
+    },
+    {
+      "matches": ["https://www.qcc.com/*"],
+      "js": ["content/guard-main.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.qcc.com/*"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
     },
     {
       "matches": ["https://ims.allbrightlaw.com/*"],

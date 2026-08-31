@@ -405,7 +405,7 @@ async function watchPhase() {
     await sleep(WATCH_POLL_MS);
     const tabs = listTabs();
     if (!tabs) continue;
-    const rel = tabs.filter((t) => /pro-plugin\.qcc\.com|ims\.allbrightlaw\.com/.test(t.url));
+    const rel = tabs.filter((t) => /qcc\.com|ims\.allbrightlaw\.com/.test(t.url));
     if (!rel.length) {
       if (!emptySince) emptySince = Date.now();
       if (Date.now() - emptySince > WATCH_EMPTY_EXIT_MS) { log('相关标签页均已关闭，守护结束'); return; }
