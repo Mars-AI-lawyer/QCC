@@ -1,13 +1,28 @@
 # 企查查速查助手
 
+<p align="center">
+  <img src="docs/images/allbright-logo.png" alt="锦天城律师事务所 AllBright Law Offices" width="420">
+</p>
+
+> **适用对象**：锦天城律师事务所（AllBright Law Offices）同事。
+> 本扩展是**事务所 IMS 系统里「企查查」的一键直达快速打开方式**（IMS · 企查查插件平台 pro-plugin.qcc.com）。
+
+## 😫 没有它，每次都这样
+
+打开事务所订阅的企查查，你需要：进入 IMS → 找到企查查应用入口 → 点开 → 等待跳转 → 输入账号密码 → 会话过期了还要**从头再来一遍**……步骤多、等待久，还经常"看着正常、一点就失效"。
+
+## 😍 装上它，一键直达
+
+- 🖱️ **一键直达**：单击浏览器工具栏图标，直达企查查查询页
+- 🔐 **自动登录**：会话过期时在后台自动换票/重新登录，全程无感
+- 🪟 **单窗口**：点击企业、点开详情，都在同一窗口以新标签打开，不再弹出一堆窗口
+- 🔒 **密码绝不离开你的电脑**：账号密码只保存在你自己电脑的浏览器本地存储里，**不上传到任何服务器**、不随浏览器账号同步、也不在代码仓库和压缩包中
+
 ![平台](https://img.shields.io/badge/平台-macOS%20%7C%20Windows-0969da)
 ![浏览器](https://img.shields.io/badge/浏览器-Chrome%20%7C%20Edge-2ea44f)
 ![系统权限](https://img.shields.io/badge/系统权限-无需开启-success)
 ![密码](https://img.shields.io/badge/密码-仅存本机-orange)
 ![版本](https://img.shields.io/badge/版本-v1.2.1-informational)
-
-一个 Chrome 扩展，**Mac 和 Windows 通用**（Chrome、Edge 均可）：
-一键打开企查查插件查询页，自动完成 IMS 登录与续期；所有点击都收敛在**同一个窗口**里，以新标签页管理。
 
 分发包：[Releases · v1.2.1](https://github.com/Mars-AI-lawyer/QCC/releases/tag/v1.2.1) 下载 `qcc-extension.zip`（私密仓库需有访问权限，没有权限就直接把 zip 文件发给你）。
 
