@@ -89,13 +89,3 @@
 | 提示会话已失效、要求手动登录 | 多次自动换票失败（如密码已被修改）：页面手动登录一次，或到「选项」里更新密码 |
 | 加载扩展时提示「已被管理员停用」 | 企业管控版 Chrome 禁止未上架扩展，需 IT 放行，或改用个人版 Chrome/Edge |
 | 仍弹新窗口 | 检查查询页是否从旧「应用快捷方式」打开；改用扩展图标打开 |
-
----
-
-## 开发者备忘（Mars）
-
-- 源码：`extension/`（MV3：background service worker + content scripts，登录/换票选择器沿用 v9/v10 实测结果）。
-- 打包分发：`zip -rq qcc-extension.zip extension -x "*.DS_Store"`，挂到 GitHub Release（**附件名不能是中文**）。
-- 代码更新后：重打包发新 zip → 同事覆盖原 `extension` 文件夹 → 扩展管理页点刷新 ↻（账号密码不丢）。
-- 历史：曾有过 Mac Dock App 方案（AppleScript + Node，v7~v3.3），2026-08-31 起统一为扩展方案；
-  旧源码在 git 历史中（`f5d1070` 及之前），本机如有残留可删除 `~/Applications/企查查速查.app`。
