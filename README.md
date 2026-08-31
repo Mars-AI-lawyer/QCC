@@ -12,10 +12,10 @@
 
 | 同事电脑 | 发给他 | 同事要做什么 |
 |---|---|---|
-| **Mac** | `企查查速查-Mac安装包.zip` | 解压 → 双击「安装企查查速查」（首次需右键→打开）→ 选「添加到 Dock」→ 完成。之后每天双击 Dock 图标。 |
+| **Mac** | `QCC-Mac-Installer.zip` | 解压 → 双击「安装企查查速查」（首次需右键→打开）→ 选「添加到 Dock」→ 完成。之后每天双击 Dock 图标。 |
 | **Windows** | `qcc-extension.zip` | 解压 → 按自动弹出的图文引导装扩展（约 1 分钟）→ 点工具栏图标使用。 |
 
-两个包都在本仓库根目录；都不会上传任何账号密码。
+两个包已挂在本仓库 [Releases · v3.0](https://github.com/Mars-AI-lawyer/QCC/releases/tag/v3.0)（私密仓库，同事需有访问权限；没有权限就直接把 zip 文件发给他）。都不会上传任何账号密码。
 
 ---
 
@@ -54,8 +54,8 @@ qcc-fast/             Mac Dock App 源码
   make-dist.sh        构建 Mac 分发包 zip（双架构 Node 自动就位）
   install.sh          自用安装到 ~/Applications/企查查速查.app
   get-node.sh         获取官方 Node 二进制（本机优先/下载 v22 LTS）
-qcc-extension.zip     → 发 Windows 同事
-企查查速查-Mac安装包.zip → 发 Mac 同事
+qcc-extension.zip      → 发 Windows 同事
+QCC-Mac-Installer.zip  → 发 Mac 同事（GitHub Release v3.0 已挂同款包）
 ```
 
 - 已装扩展的机器（如本机）不要再跑 `install.sh` 装 Dock App，二选一。

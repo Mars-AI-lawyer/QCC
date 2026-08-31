@@ -1,5 +1,5 @@
 #!/bin/bash
-# 企查查速查 · 构建同事分发包：企查查速查-Mac安装包.zip
+# 企查查速查 · 构建同事分发包：QCC-Mac-Installer.zip
 #
 # 产物结构（解压后）：
 #   企查查速查-Mac安装包/
@@ -8,13 +8,14 @@
 #     企查查速查.app          ← 主程序（安装器负责复制到 ~/Applications）
 #
 # 主 App 内置双架构官方 Node（arm64 本机取 / x64 下载），同事无需安装任何依赖。
+# zip 文件名用 ASCII：GitHub Release 附件不支持中文文件名。
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SRC")"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
-OUT_ZIP="$ROOT/企查查速查-Mac安装包.zip"
+OUT_ZIP="$ROOT/QCC-Mac-Installer.zip"
 
 # ---------- 1) 准备双架构内置 Node ----------
 mkdir -p "$SRC/.dist-node"
