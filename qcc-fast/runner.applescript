@@ -75,6 +75,11 @@ on run argv
 			set active tab index of window id gWin to gTab
 			return "OK"
 
+		else if gMode is "CLOSE_WIN" then
+			set gWin to (gA as integer)
+			close window id gWin
+			return "OK"
+
 		else if gMode is "CLOSE_TAB" then
 			set gWin to (gA as integer)
 			set gTab to (gB as integer)

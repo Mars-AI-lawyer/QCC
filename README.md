@@ -5,7 +5,7 @@
 ![系统权限](https://img.shields.io/badge/系统权限-无需开启-success)
 ![密码](https://img.shields.io/badge/密码-仅存本机-orange)
 ![Mac入口](https://img.shields.io/badge/Mac入口-Dock双击即用-8250df)
-![版本](https://img.shields.io/badge/版本-Mac%20App%20v3.2%20%7C%20扩展%20v1.2-informational)
+![版本](https://img.shields.io/badge/版本-Mac%20App%20v3.3%20%7C%20扩展%20v1.2-informational)
 
 一键打开企查查插件查询页，自动完成 IMS 登录与续期；所有点击都收敛在**同一个窗口**里以新标签管理。
 按同事的电脑类型二选一（**同一台电脑不要两个都装**，两套自动登录会互相抢）：

@@ -47,7 +47,7 @@ const NAV_COOLDOWN_MS = 4_500;
 const MAX_FILLS = 3;              // 每组凭据最多填表次数
 const MAX_NAVS = 4;               // 跳 IMS t=1 换票最多次数
 const CRED_ROUNDS = 2;            // 最多重录凭据轮数
-const WATCH_POLL_MS = 1_500;      // 守护阶段轮询
+const WATCH_POLL_MS = 900;          // 守护阶段轮询（弹窗转换要跟手）
 const WATCH_BUDGET_MS = 30 * 60_000; // 守护阶段时长
 const WATCH_EMPTY_EXIT_MS = 20_000;  // 相关标签页全关后多久退出守护
 
@@ -426,12 +426,20 @@ async function healViaBackground(anchor) {
     await sleep(500);
     const tabs = listTabs();
     if (!tabs) continue;
-    const bg = tabs.find((t) => t.winId === anchor.winId && t.idx === bgIdx);
+    // 优先按 URL 特征找临时标签，索引漂移（用户开/关标签）也不会认错
+    const wtabs = tabs.filter((t) => t.winId === anchor.winId);
+    const bg = wtabs.find((t) => /ims\.allbrightlaw\.com|pro-plugin\.qcc\.com\/plugin-login/.test(t.url))
+      || wtabs.find((t) => t.idx === bgIdx && /pro-plugin\.qcc\.com/.test(t.url))
+      || wtabs.find((t) => t.idx === bgIdx);
     if (!bg) return surfaced; // 被用户关掉：亮出前视为失败，亮出后视为用户已自行处理
     const u = bg.url;
     if (/pro-plugin\.qcc\.com\/plugin-search/.test(u)) {
-      closeTab(anchor.winId, bgIdx);   // 临时标签在窗口末尾，关闭不影响 anchor 序号
-      reloadTab(anchor.winId, anchor.idx);
+      closeTab(anchor.winId, bg.idx);
+      const after = listTabs() || [];
+      const fresh = after.find((t) => t.winId === anchor.winId
+        && t.idx !== bg.idx && /pro-plugin\.qcc\.com\/plugin-search/.test(t.url))
+        || after.find((t) => t.winId === anchor.winId && t.idx < bg.idx);
+      if (fresh) reloadTab(anchor.winId, fresh.idx);
       return true;
     }
     if (/ims\.allbrightlaw\.com/.test(u) && !surfaced && Date.now() - lastFillAt > FILL_COOLDOWN_MS) {
@@ -465,8 +473,12 @@ async function healViaBackground(anchor) {
 // ---------- 守护阶段：守卫注入 / 弹窗排空 / 中途失效自愈 ----------
 async function watchPhase() {
   const deadline = Date.now() + WATCH_BUDGET_MS;
-  let lastHealAt = 0;
+  let lastHealAt = 0, lastConvertAt = 0;
   let emptySince = 0;
+  // 基线窗口 = 守护开始时已存在的窗口。守护开始后才出现的"纯企查查窗口"视为站点弹窗：
+  // AppleScript 无法在页面脚本执行前注入，站点若提前捕获了原生 window.open，页内覆写
+  // 对它无效，只能靠这里兜底——整体搬成基线窗口的标签页后关闭弹窗窗口。
+  const baselineWins = new Set((listTabs() || []).map((t) => String(t.winId)));
   while (Date.now() < deadline) {
     await sleep(WATCH_POLL_MS);
     const tabs = listTabs();
@@ -478,7 +490,35 @@ async function watchPhase() {
       continue;
     }
     emptySince = 0;
+
+    // ── 弹窗窗口 → 标签页 转换 ──
+    const byWin = new Map();
     for (const t of rel) {
+      if (!byWin.has(t.winId)) byWin.set(t.winId, []);
+      byWin.get(t.winId).push(t);
+    }
+    const popupWins = [];
+    for (const [winId, wtabs] of byWin) {
+      if (baselineWins.has(String(winId))) continue;
+      if (wtabs.every((t) => /qcc\.com|ims\.allbrightlaw\.com/.test(t.url))) popupWins.push({ winId, wtabs });
+    }
+    if (popupWins.length && Date.now() - lastConvertAt > 1000) {
+      const mainWin = tabs.find((x) => baselineWins.has(String(x.winId)) && /pro-plugin\.qcc\.com\/plugin-search/.test(x.url))
+        || tabs.find((x) => baselineWins.has(String(x.winId)));
+      if (mainWin) {
+        lastConvertAt = Date.now();
+        for (const pw of popupWins) {
+          log(`发现弹窗窗口 w${pw.winId}（${pw.wtabs.length} 标签）→ 转为主窗口标签页`);
+          for (const t of pw.wtabs) openTab(mainWin.winId, t.url);
+          osa([RUNNER, 'CLOSE_WIN', String(pw.winId)], 6000);
+        }
+        continue;
+      }
+    }
+
+    // ── 基线窗口：守卫注入 / 弹窗队列排空 / 中途失效自愈 ──
+    for (const t of rel) {
+      if (!baselineWins.has(String(t.winId))) continue;
       const f = writeTmpJs(GUARD_JS);
       const r = evalFile(f, t.winId, t.idx);
       if (r.err) continue;
@@ -550,6 +590,7 @@ async function main() {
   let lastFillAt = 0, lastNavAt = 0;
   let permOff = false;
   let reopenAllowedAt = Date.now() + 6_000;
+  let missSince = 0;
   let result = 'TIMEOUT';
   let chosen = null; // 命中 READY 的 tab {winId, idx, url}
   let readySince = 0;   // 就绪稳定计时起点
@@ -561,16 +602,19 @@ async function main() {
 
     let tabs = listTabs();
 
-    // 一直没有可用标签页 → 中途再拉起一次入口兜底
+    // 一直没有可用标签页 → 持续数秒仍没有才再拉起一次入口兜底（避免过渡态误判）
     if (!tabs || !tabs.some((t) => scoreOf(t.url) > 0)) {
       if (isAuthErr(lastOsaErr)) { result = 'AUTH'; break; }
-      if (tabs && Date.now() > reopenAllowedAt) {
-        log('未发现企查查相关标签页，再次拉起入口');
+      if (!missSince) missSince = Date.now();
+      if (tabs && Date.now() > reopenAllowedAt && Date.now() - missSince > 4000) {
+        log('持续未发现企查查相关标签页，再次拉起入口');
         openEntry();
         reopenAllowedAt = Date.now() + 12_000;
+        missSince = 0;
       }
       continue;
     }
+    missSince = 0;
 
     // 关键设计：直连的 plugin-search 用的是上次残留的旧会话（票据存活期短，
     // 经常"看着正常、一点就失效"）。因此每次启动统一先换一张新票——但换票/登录
