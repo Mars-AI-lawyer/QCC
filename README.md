@@ -22,9 +22,9 @@
 ![浏览器](https://img.shields.io/badge/浏览器-Chrome%20%7C%20Edge-2ea44f)
 ![系统权限](https://img.shields.io/badge/系统权限-无需开启-success)
 ![密码](https://img.shields.io/badge/密码-仅存本机-orange)
-![版本](https://img.shields.io/badge/版本-v1.2.1-informational)
+![版本](https://img.shields.io/badge/版本-v1.3.0-informational)
 
-分发包：[Releases · v1.2.1](https://github.com/Mars-AI-lawyer/QCC/releases/tag/v1.2.1) 下载 `qcc-extension.zip`（私密仓库需有访问权限，没有权限就直接把 zip 文件发给你）。
+分发包：[Releases · v1.3.0](https://github.com/Mars-AI-lawyer/QCC/releases/tag/v1.3.0) 下载 `qcc-extension.zip`（私密仓库需有访问权限，没有权限就直接把 zip 文件发给你）。
 
 ## 一、安装（Mac / Windows 步骤完全相同，约 1 分钟）
 
@@ -86,6 +86,7 @@
 | 现象 | 处理 |
 |---|---|
 | 点扩展图标没反应 | 确认 `chrome://extensions` 里「企查查速查助手」已启用；点开「服务工作进程」可看日志 |
-| 提示会话已失效、要求手动登录 | 多次自动换票失败（如密码已被修改）：页面手动登录一次，或到「选项」里更新密码 |
+| 停在「登录状态失效」的 noresult 页 | v1.3.0 起该页会自动触发后台换票（等待期最长 90 秒）；若最终提示手动登录，点扩展图标重开查询页再试 |
+| 弹出 IMS 登录确认框 | 已存密码不会被自动删除；仅当 10 分钟内连续 3 次自动登录失败（如密码已被修改）才暂停自动填写并弹出确认框——密码留空点「保存并登录」即沿用已存密码重试，密码已改则输入新密码；也可到「选项」里更新 |
 | 加载扩展时提示「已被管理员停用」 | 企业管控版 Chrome 禁止未上架扩展，需 IT 放行，或改用个人版 Chrome/Edge |
 | 仍弹新窗口 | 检查查询页是否从旧「应用快捷方式」打开；改用扩展图标打开 |
